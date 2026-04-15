@@ -115,7 +115,7 @@ fn extract_collapse_mask(iy: &[i32], n: usize, b: usize) -> u8 {
             nonzero |= iy[i * n0 + j];
         }
         if nonzero != 0 {
-            mask |= 1 << i;
+            if i < 8 { mask |= 1 << i; }//earlier :  mask |= 1 << i;
         }
     }
     mask
