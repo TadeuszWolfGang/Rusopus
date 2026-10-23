@@ -647,7 +647,7 @@ impl Decoder {
                         packet_idx,
                         out_frame,
                     )?;
-                    let redundancy = if ec.tell() + 17 + 20 <= (frame.len() as i32) * 8 {
+                    let mut redundancy = if ec.tell() + 17 + 20 <= (frame.len() as i32) * 8 {
                         ec.dec_bit_logp(12)
                     } else {
                         false
@@ -657,7 +657,15 @@ impl Decoder {
                     if redundancy {
                         celt_to_silk = ec.dec_bit_logp(1);
                         redundancy_bytes = ec.dec_uint(256) as usize + 2;
-                        ec.shrink_storage(redundancy_bytes);
+                        // As libopus: a length the frame can't hold means no redundancy.
+                        let left = frame.len().checked_sub(redundancy_bytes);
+                        if left.is_none_or(|left| (left as i64) * 8 < i64::from(ec.tell())) {
+                            redundancy = false;
+                            celt_to_silk = false;
+                            redundancy_bytes = 0;
+                        } else {
+                            ec.shrink_storage(redundancy_bytes);
+                        }
                     }
                     let mut celt_to_silk_audio = Vec::new();
                     let mut celt_to_silk_samples = 0usize;
