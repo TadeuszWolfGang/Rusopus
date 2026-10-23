@@ -126,7 +126,9 @@ fn extract_collapse_mask(iy: &[i32], n: usize, b: usize) -> u8 {
             nonzero |= iy[i * n0 + j];
         }
         if nonzero != 0 {
-            mask |= 1 << i;
+            // Up to 16 short blocks: bit `i % 8`, which the fold after
+            // turns into libopus's mask.
+            mask |= 1u8.wrapping_shl(i as u32);
         }
     }
     mask
@@ -188,7 +190,16 @@ pub(crate) fn renormalise_vector(x: &mut [f32], gain: f32) {
 
 #[cfg(test)]
 mod tests {
-    use super::rotation_sin_cos;
+    use super::{extract_collapse_mask, rotation_sin_cos};
+
+    #[test]
+    fn collapse_mask_takes_sixteen_short_blocks() {
+        let iy = [1; 16];
+        assert_eq!(extract_collapse_mask(&iy, 16, 16), 0xFF);
+        let mut only_late = [0; 16];
+        only_late[9] = 1;
+        assert_eq!(extract_collapse_mask(&only_late, 16, 16), 1 << 1);
+    }
 
     #[test]
     fn rotation_approximation_matches_standard_trigonometry() {
