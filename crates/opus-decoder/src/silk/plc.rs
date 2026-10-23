@@ -130,6 +130,7 @@ pub(super) fn plc_conceal(
     };
     let base_rand_scale_q16 = (plc.fs_khz.max(1) * 3) << 10;
     let noise_gain_q16 = mul_q14_q16(plc.shape_gain, base_rand_scale_q16);
+    let reference = rms(&plc.last_frame_out);
     let mut synth_q14 = [0i32; MAX_LPC_ORDER + MAX_FRAME_LENGTH];
     synth_q14[..nb_coefs].copy_from_slice(&lpc_state[..nb_coefs]);
 
@@ -167,10 +168,34 @@ pub(super) fn plc_conceal(
         }
     }
 
+    // libopus scales the noise by the last frame's gains; keep a concealed
+    // frame (and the LPC state it leaves) no louder than the one it continues.
+    let concealed = rms(&out[..frame_len]);
+    if concealed > reference {
+        let scale = reference / concealed;
+        for sample in out[..frame_len].iter_mut() {
+            *sample = (f64::from(*sample) * scale).round() as i16;
+        }
+        for state in synth_q14[..frame_len + nb_coefs].iter_mut() {
+            *state = (f64::from(*state) * scale).round() as i32;
+        }
+    }
     lpc_state[..nb_coefs].copy_from_slice(&synth_q14[frame_len..frame_len + nb_coefs]);
     plc.last_frame_out.clear();
     plc.last_frame_out.extend_from_slice(out);
     plc.shape_gain = ((plc.shape_gain as i64 * 16_220) >> 14) as i32;
+}
+
+/// Root mean square of `samples`.
+///
+/// Parameters: PCM `samples`.
+/// Returns: their RMS, or zero for none.
+fn rms(samples: &[i16]) -> f64 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum: f64 = samples.iter().map(|&s| f64::from(s) * f64::from(s)).sum();
+    (sum / samples.len() as f64).sqrt()
 }
 
 /// Read one pitch source sample from the saved PLC history.
